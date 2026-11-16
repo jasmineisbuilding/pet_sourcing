@@ -26,7 +26,7 @@ dist/
 .idea/
 .vscode/
 
-# Claude Code 的本地文件，不上传
-CLAUDE.md
+# Claude Code 的个人本地文件，不上传
+# （CLAUDE.md 暂时提交，供云端会话读取规则；项目公开展示前统一清理，见 CLAUDE.md）
 CLAUDE.local.md
 .claude/
