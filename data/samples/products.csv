@@ -1,0 +1,5 @@
+key,name,brand,platform,url,price,currency,review_count,rating,captured_at,notes
+P1,Self-cleaning slicker brush for cats,DemoBrand Alpha,marketplace,https://example.com/p/alpha-brush,24.99,CAD,1830,4.3,2026-11-10,虚构示例
+P2,Deshedding comb with wide head,DemoBrand Beta,marketplace,https://example.com/p/beta-comb,32.50,CAD,640,4.1,2026-11-10,虚构示例
+P3,Silicone grooming glove (pair),DemoBrand Gamma,marketplace,https://example.com/p/gamma-glove,15.99,CAD,2210,3.9,2026-11-10,虚构示例
+P4,Steam spray grooming brush,DemoBrand Delta,marketplace,https://example.com/p/delta-steam,,,95,,2026-11-10,虚构示例；价格页面未显示，记为未知

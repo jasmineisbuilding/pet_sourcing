@@ -1,0 +1,31 @@
+# ---- 私密目录：真实报价、访谈、数据库、原始录音等，永不上传 ----
+private/*
+!private/README.md
+
+# 密钥
+.env
+.env.*
+!.env.example
+
+# 本地数据库（无论放在哪里）
+*.db
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+
+# 编辑器 / 系统
+.DS_Store
+.idea/
+.vscode/
+
+# Claude Code 的个人本地设置（CLAUDE.md 本身会提交）
+CLAUDE.local.md
+.claude/settings.local.json

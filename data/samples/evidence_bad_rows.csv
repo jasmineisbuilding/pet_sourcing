@@ -1,0 +1,6 @@
+kind,product_key,raw_text,rating,source_url,source_note,captured_at,language
+review,P1,"Missing source on purpose",3,,,2026-11-10,en
+review,P9,"Product key P9 does not exist",3,https://example.com/x,,2026-11-10,en
+review,P1,"Bad date",3,https://example.com/y,,not-a-date,en
+rumor,P1,"Unknown evidence kind",3,https://example.com/z,,2026-11-10,en
+review,P2,"This one row is valid and gets imported in non-strict mode.",4,https://example.com/ok,,2026-11-10,en

@@ -1,0 +1,40 @@
+# 成本情景示例（虚构数字，仅用于演示）
+# 运行：petsrc economics examples/economics_demo.toml
+
+[meta]
+name = "[DEMO] 易清洁猫咪梳毛刷 - 500 件（MOQ）小批量测试"
+category = "pet_supplies"     # 缺失的参数会从品类配置的默认假设中补齐，并明确标注
+
+[base]
+price = 27.99                 # CAD，不含销售税
+unit_cost = 14.5              # 供应商单价（CNY）
+fx_to_cad = 0.19              # 1 CNY = 0.19 CAD（示例汇率，使用时请更新）
+order_qty = 500               # 等于 Demo Supplier A 的 MOQ
+inbound_freight_total = 450   # 整批到仓运费 CAD（示例）
+packaging_per_unit = 0.60
+labeling_per_unit = 0.25      # 双语标签 / 说明卡
+referral_rate = 0.15          # 平台佣金（示例，需核实）
+fulfillment_fee_per_unit = 6.20
+cac_per_order = 5.00
+fixed_costs = 600             # 拿样、拍照、上架
+
+[sources.unit_cost]
+kind = "quote"
+ref = "quote:1"
+note = "Demo Supplier A, MOQ 500, FOB"
+
+[sources.fx_to_cad]
+kind = "assumption"
+note = "示例汇率"
+
+[scenarios.optimistic]
+price = 29.99
+cac_per_order = 3.5
+sell_through = 0.9
+
+[scenarios.pessimistic]
+price = 24.99
+cac_per_order = 8.0
+inbound_freight_total = 650
+return_rate = 0.15
+sell_through = 0.5

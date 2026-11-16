@@ -1,0 +1,4 @@
+supplier,product_desc,unit_price,currency,moq,unit_weight_g,dims_cm,incoterm,lead_time_days,quoted_at,source_note,notes
+Demo Supplier A,Slicker brush with retract button + custom logo,14.5,CNY,500,120,20x9x4,FOB,25,2026-11-05,Fictional chat quote,虚构示例
+Demo Supplier A,Slicker brush with retract button + custom logo,13.8,CNY,1000,120,20x9x4,FOB,25,2026-11-05,Fictional chat quote,虚构示例；量大价低
+Demo Supplier B,Wide deshedding comb stainless,18.0,CNY,300,160,22x10x3,EXW,20,2026-11-06,Fictional chat quote,虚构示例

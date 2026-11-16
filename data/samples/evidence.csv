@@ -1,0 +1,13 @@
+kind,product_key,raw_text,rating,source_url,source_note,captured_at,language
+review,P1,"The button that pushes the hair off stopped working after two months. Now cleaning it is a pain.",2,https://example.com/p/alpha-brush#r1,,2026-11-10,en
+review,P1,"Works great on my short-haired cat, hair comes off in one sheet when I press the button.",5,https://example.com/p/alpha-brush#r2,,2026-11-10,en
+review,P1,"Pins are too sharp, my cat runs away as soon as she sees it.",2,https://example.com/p/alpha-brush#r3,,2026-11-10,en
+review,P2,"Removes a ton of undercoat but hair gets stuck between the teeth and I have to pick it out by hand.",3,https://example.com/p/beta-comb#r1,,2026-11-10,en
+review,P2,"Too big for my small cat, can't reach under the legs.",3,https://example.com/p/beta-comb#r2,,2026-11-10,en
+review,P2,"Best deshedding tool I've owned. Pricey but worth it.",5,https://example.com/p/beta-comb#r3,,2026-11-10,en
+review,P3,"My cat loves the glove, it feels like petting. Doesn't remove much undercoat though.",4,https://example.com/p/gamma-glove#r1,,2026-11-10,en
+review,P3,"Hair sticks to the glove and washing it is annoying.",2,https://example.com/p/gamma-glove#r2,,2026-11-10,en
+review,P3,"Le gant est trop grand pour ma main et le poil reste collé.",2,https://example.com/p/gamma-glove#r3,,2026-11-10,fr
+review,P4,"The water tank leaks a bit and the mist scares my cat.",2,https://example.com/p/delta-steam#r1,,2026-11-10,en
+discussion,,"Anyone found a brush that is easy to clean? Every one I tried ends up with hair packed at the base.",,https://example.com/forum/cats/thread-123,,2026-11-08,en
+note,,"Visited a local pet store: 6 grooming tools on shelf, 4 of them slicker brushes, none advertised easy cleaning.",,,"Own store visit (fictional demo note)",2026-11-09,en
