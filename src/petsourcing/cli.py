@@ -35,6 +35,8 @@ tool_app = typer.Typer(help="Agent 工具（调试用：查看定义、手动调
 app.add_typer(tool_app, name="tool")
 run_app = typer.Typer(help="调查运行记录", no_args_is_help=True)
 app.add_typer(run_app, name="run")
+agent_app = typer.Typer(help="运行 Agent", no_args_is_help=True)
+app.add_typer(agent_app, name="agent")
 console = Console()
 
 DbOpt = typer.Option(None, "--db", help="数据库文件，默认 private/data/petsourcing.db")
@@ -432,6 +434,52 @@ def run_show(run_id: int, db: Path | None = DbOpt) -> None:
             t.add_row(str(st.id), st.agent, st.tool_name,
                       escape(json.dumps(st.tool_input, ensure_ascii=False)[:80]), res, str(st.latency_ms))
         console.print(t)
+
+
+# --------------------------------------------------------------------------- agent
+
+
+@agent_app.command("run")
+def agent_run(
+    opportunity: str = typer.Option(..., "--opportunity", "-o"),
+    agent: str = typer.Option("demand", help="Agent 名称"),
+    model: str = typer.Option("demo", help="模型。目前只有 demo（脚本模拟，不需要 API key）"),
+    max_turns: int = typer.Option(20),
+    max_tool_calls: int = typer.Option(40),
+    db: Path | None = DbOpt,
+) -> None:
+    """运行一个 Agent，实时显示它的每一步，结束后可用 run show 查看完整记录。"""
+    from .agents.loop import LoopLimits
+    from .agents.runner import run_single_agent
+
+    if model != "demo":
+        console.print("[red]目前只支持 --model demo；真实模型在第 1.2/1.3 步接入[/red]")
+        raise typer.Exit(2)
+    if agent != "demand":
+        console.print("[red]demo 模型目前只有 demand Agent 的脚本[/red]")
+        raise typer.Exit(2)
+    from .agents.demo_script import demo_demand_model
+
+    def show(kind: str, d: dict) -> None:
+        if kind == "text":
+            console.print(f"[cyan]{d['agent']}[/cyan] 💬 {escape(d['text'])}")
+        elif kind == "tool":
+            mark = "[green]✓[/green]" if d["ok"] else f"[red]✗ {escape(d['error'] or '')}[/red]"
+            console.print(f"[cyan]{d['agent']}[/cyan] 🔧 {d['name']} {mark}")
+        elif kind == "retry":
+            console.print(f"[yellow]模型出错，{d['delay']:.0f}s 后重试（第 {d['attempt']} 次）[/yellow]")
+        elif kind == "finish":
+            color = {"completed": "green", "stopped": "yellow", "failed": "red"}[d["outcome"]]
+            console.print(f"[{color}]结束：{d['outcome']} · {escape(d['reason'])}[/{color}]")
+
+    with session_scope(_engine(db)) as s:
+        opp = _get_opp(s, opportunity)
+        run, res = run_single_agent(s, opp, agent, demo_demand_model(),
+                                    limits=LoopLimits(max_turns=max_turns, max_tool_calls=max_tool_calls),
+                                    on_event=show)
+        console.print(f"[dim]run {run.id} · {run.status} · prompt {run.prompt_version} · "
+                      f"{res.turns} 轮 · {res.tool_calls} 次工具调用（失败 {res.failed_tool_calls}） · "
+                      f"tokens {res.input_tokens}+{res.output_tokens}[/dim]")
 
 
 # --------------------------------------------------------------------------- demo

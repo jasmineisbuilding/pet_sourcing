@@ -14,7 +14,7 @@
 | 阶段 | 内容 | 状态 |
 |---|---|---|
 | 0 | 数据模型与迁移、证据导入（来源校验、幂等）、论断引用校验、证据取代、成本引擎 + 敏感度分析、CLI | ✅ |
-| 1 | Agent 工具层（权限、校验、追踪）✅ · 评论批量打标、Agent + 协调器、评估集、截图导入 ⏳ | 🚧 |
+| 1 | Agent 工具层 ✅ · Agent 循环骨架（脚本模型）✅ · 接入真实模型、评论打标、多 Agent 协调、评估集、截图导入 ⏳ | 🚧 |
 | 2 | Web 工作台：机会看板、产品详情、成本模拟器、调查过程 | ⏳ |
 | 3 | 验证记录与回填，人工审批流 | ⏳ |
 
@@ -59,6 +59,7 @@ Agent 工具（第 1 阶段，可以手动以任一 Agent 的身份调用，便�
 uv run petsrc tool list --agent demand                 # 某个 Agent 被授权的工具
 uv run petsrc tool call search_evidence -o cat-brush --agent demand --args '{"query": "clean"}'
 uv run petsrc run show 1                               # 一次调查中每个工具调用的记录
+uv run petsrc agent run -o demo-easy-clean-cat-brush --db private/data/demo.db   # 脚本模拟的需求 Agent，不需要 API key
 ```
 
 ## 目录
@@ -67,7 +68,8 @@ uv run petsrc run show 1                               # 一次调查中每个�
 src/petsourcing/
   models.py          数据模型：证据 → 论断 → 质疑 → 决策 → 验证
   migrations/        数据库迁移脚本（Alembic）
-  agents/            Agent 工具层：工具、权限、执行器（savepoint + 追踪）、运行记录
+  agents/            Agent 层：工具与权限、执行器、Agent 循环（各种上限与失败处理）、
+                     版本化提示词（prompts/）、脚本模拟模型
   search_index.py    证据全文检索（SQLite FTS5，trigram，支持中英法）
   claims.py          论断写入与引用原文校验（防编造）
   evidence_ops.py    证据取代
