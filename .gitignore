@@ -26,6 +26,7 @@ dist/
 .idea/
 .vscode/
 
-# Claude Code 的个人本地设置（CLAUDE.md 本身会提交）
+# Claude Code 的本地文件，不上传
+CLAUDE.md
 CLAUDE.local.md
-.claude/settings.local.json
+.claude/

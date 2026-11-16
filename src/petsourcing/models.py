@@ -194,6 +194,8 @@ class Evidence(Base):
     # Memory hygiene: newer evidence (e.g. an updated price page) supersedes older
     # evidence instead of overwriting it, so history is kept but not used as current.
     superseded_by_id: Mapped[int | None] = mapped_column(ForeignKey("evidence.id"))
+    superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    supersede_note: Mapped[str | None] = mapped_column(Text)
 
     opportunity: Mapped[Opportunity] = relationship(back_populates="evidence")
     product: Mapped[Product | None] = relationship(back_populates="evidence")

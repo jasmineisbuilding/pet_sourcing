@@ -16,12 +16,21 @@ from . import config
 from .db import init_db, make_engine, session_scope
 from .economics import load_scenarios, sensitivity
 from .ingest import IMPORTERS, ImportReport
-from .models import Evidence, Opportunity, Product, Stage, SupplierQuote
+from .claims import Citation, add_claim, claims_citing_superseded
+from .evidence_ops import SupersedeError, supersede
+from .ingest.paste import import_pasted
+from .models import Claim, ClaimType, Evidence, EvidenceKind, Opportunity, Product, Stage, SupplierQuote
 from .profiles import available_profiles, load_profile
 
 app = typer.Typer(help="宠物用品选品与经营决策平台（第 0 阶段：数据层 / 导入 / 成本引擎）", no_args_is_help=True)
 opp_app = typer.Typer(help="管理研究机会", no_args_is_help=True)
 app.add_typer(opp_app, name="opportunity")
+ev_app = typer.Typer(help="证据操作", no_args_is_help=True)
+app.add_typer(ev_app, name="evidence")
+claim_app = typer.Typer(help="论断（带引用校验）", no_args_is_help=True)
+app.add_typer(claim_app, name="claim")
+db_app = typer.Typer(help="数据库迁移", no_args_is_help=True)
+app.add_typer(db_app, name="db")
 console = Console()
 
 DbOpt = typer.Option(None, "--db", help="数据库文件，默认 private/data/petsourcing.db")
@@ -207,6 +216,128 @@ def economics(
     console.print(t)
 
 
+# --------------------------------------------------------------------------- paste
+
+
+@app.command()
+def paste(
+    opportunity: str = typer.Option(..., "--opportunity", "-o"),
+    kind: EvidenceKind = typer.Option(EvidenceKind.REVIEW, help="证据类型"),
+    source_url: str | None = typer.Option(None, help="来源链接"),
+    source_note: str | None = typer.Option(None, help="没有链接时的来源说明"),
+    captured_at: str | None = typer.Option(None, help="采集日期 YYYY-MM-DD，默认今天"),
+    product: str | None = typer.Option(None, help="关联的竞品 key"),
+    language: str | None = typer.Option(None),
+    file: Path | None = typer.Option(None, exists=True, dir_okay=False, help="从文件读取，默认读标准输入"),
+    db: Path | None = DbOpt,
+) -> None:
+    """粘贴多条文本作为证据：条目之间用空行或 --- 分隔。"""
+    import sys
+
+    text = file.read_text(encoding="utf-8") if file else sys.stdin.read()
+    when = date.fromisoformat(captured_at) if captured_at else date.today()
+    with session_scope(_engine(db)) as s:
+        report = import_pasted(s, _get_opp(s, opportunity), text, kind=kind, captured_at=when,
+                               source_url=source_url, source_note=source_note,
+                               product_key=product, language=language)
+    _print_report(report)
+
+
+# --------------------------------------------------------------------------- evidence
+
+
+@ev_app.command("supersede")
+def ev_supersede(
+    old_id: int = typer.Argument(..., help="被取代的旧证据 id"),
+    new_id: int = typer.Argument(..., help="新证据 id"),
+    note: str | None = typer.Option(None, help="原因，例如：价格已更新"),
+    db: Path | None = DbOpt,
+) -> None:
+    """用新证据取代旧证据（旧证据保留为历史，但不再作为当前事实）。"""
+    with session_scope(_engine(db)) as s:
+        try:
+            old = supersede(s, old_id, new_id, note)
+        except SupersedeError as e:
+            console.print(f"[red]{e}[/red]")
+            raise typer.Exit(1)
+        affected = [cid for cid, evs in claims_citing_superseded(s, old.opportunity).items()
+                    if old_id in evs]
+    console.print(f"[green]证据 {old_id} 已被 {new_id} 取代[/green]")
+    if affected:
+        console.print(f"[yellow]以下论断引用了旧证据，需要复核：{affected}[/yellow]")
+
+
+# --------------------------------------------------------------------------- claims
+
+
+def _parse_cite(raw: str) -> Citation:
+    eid, sep, quote = raw.partition(":")
+    if not sep or not eid.strip().isdigit():
+        raise typer.BadParameter(f"引用格式应为 证据id:原文片段，收到 {raw!r}")
+    return Citation(int(eid), quote.strip())
+
+
+@claim_app.command("add")
+def claim_add(
+    opportunity: str = typer.Option(..., "--opportunity", "-o"),
+    type: ClaimType = typer.Option(..., "--type", help="pain / gap / cost / risk / other"),
+    text: str = typer.Option(..., "--text", help="论断内容"),
+    cite: list[str] = typer.Option([], "--cite", help="证据id:原文片段，可重复"),
+    agent: str = typer.Option("manual", help="谁提出的"),
+    confidence: float | None = typer.Option(None),
+    db: Path | None = DbOpt,
+) -> None:
+    """添加论断。引用的原文必须真实存在于证据中，否则整条论断被拒绝。"""
+    citations = [_parse_cite(c) for c in cite]
+    with session_scope(_engine(db)) as s:
+        r = add_claim(s, _get_opp(s, opportunity), agent=agent, type=type, text=text,
+                      citations=citations, confidence=confidence)
+    if not r.ok:
+        console.print("[red]论断被拒绝：[/red]")
+        for e in r.errors:
+            console.print(f"  [red]✗[/red] {escape(e)}")
+        raise typer.Exit(1)
+    console.print(f"[green]已添加论断 #{r.claim_id}（{r.status.value}）[/green]")
+    for w in r.warnings:
+        console.print(f"  [yellow]⚠ {escape(w)}[/yellow]")
+
+
+@claim_app.command("list")
+def claim_list(opportunity: str = typer.Option(..., "--opportunity", "-o"), db: Path | None = DbOpt) -> None:
+    """列出论断及其引用。"""
+    with session_scope(_engine(db)) as s:
+        opp = _get_opp(s, opportunity)
+        stale = claims_citing_superseded(s, opp)
+        t = Table("id", "类型", "状态", "来自", "论断", "引用")
+        for c in s.scalars(select(Claim).where(Claim.opportunity_id == opp.id).order_by(Claim.id)):
+            cites = "\n".join(f"#{x.evidence_id}: “{x.quote_span}”" for x in c.citations) or "[dim]无[/dim]"
+            status = c.status.value
+            if c.id in stale:
+                status += f"\n[yellow]引用已被取代 {stale[c.id]}[/yellow]"
+            t.add_row(str(c.id), c.type.value, status, c.agent, c.text, escape(cites) if c.citations else cites)
+        console.print(t)
+
+
+# --------------------------------------------------------------------------- db
+
+
+@db_app.command("upgrade")
+def db_upgrade(db: Path | None = DbOpt) -> None:
+    """把数据库升级到最新结构（保留数据）。"""
+    from .migrate import current_revision
+
+    engine = _engine(db)
+    console.print(f"[green]数据库版本：{current_revision(engine)}[/green]")
+
+
+@db_app.command("revision")
+def db_revision(message: str = typer.Option(..., "-m", help="迁移说明"), db: Path | None = DbOpt) -> None:
+    """修改 models.py 后，自动生成新的迁移脚本（开发用）。"""
+    from .migrate import revision
+
+    revision(message, make_engine(db) if db else None)
+
+
 # --------------------------------------------------------------------------- demo
 
 
@@ -225,8 +356,28 @@ def demo(db: Path = typer.Option(config.DEMO_DB_PATH, "--db", help="演示数据
         s.flush()
         for kind in ("products", "evidence", "quotes"):
             _print_report(IMPORTERS[kind](s, opp, config.SAMPLES_DIR / f"{kind}.csv"))
+        _seed_demo_claims(s, opp)
     console.print(f"[green]演示数据库：[/green]{db}")
     console.print(f"下一步：petsrc opportunity show {slug} --db {db}")
+
+
+def _seed_demo_claims(s, opp: Opportunity) -> None:
+    """A few hand-written claims so the demo shows the citation rules at work."""
+
+    def ev(fragment: str) -> int:
+        return s.scalar(select(Evidence.id).where(Evidence.opportunity_id == opp.id,
+                                                  Evidence.raw_text.contains(fragment)))
+
+    add_claim(s, opp, agent="manual", type=ClaimType.PAIN,
+              text="Users find grooming tools hard to clean because hair packs into the base or teeth.",
+              citations=[Citation(ev("easy to clean"), "ends up with hair packed at the base"),
+                         Citation(ev("stuck between the teeth"), "hair gets stuck between the teeth")])
+    add_claim(s, opp, agent="manual", type=ClaimType.RISK,
+              text="Some cats are scared of grooming tools, which limits who can use them.",
+              citations=[Citation(ev("too sharp"), "my cat runs away as soon as she sees it"),
+                         Citation(ev("water tank"), "the mist scares my cat")])
+    add_claim(s, opp, agent="manual", type=ClaimType.GAP,
+              text="No product on the local shelf advertises easy cleaning.")  # no citation -> unverified
 
 
 if __name__ == "__main__":

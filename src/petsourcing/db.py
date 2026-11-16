@@ -8,7 +8,6 @@ from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
 from . import config
-from .models import Base
 
 
 def make_engine(path: Path | None = None) -> Engine:
@@ -24,7 +23,10 @@ def make_engine(path: Path | None = None) -> Engine:
 
 
 def init_db(engine: Engine) -> None:
-    Base.metadata.create_all(engine)
+    """Create or upgrade the schema via migrations (idempotent)."""
+    from .migrate import upgrade
+
+    upgrade(engine)
 
 
 @contextmanager

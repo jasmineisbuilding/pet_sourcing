@@ -8,13 +8,13 @@
 
 ## 当前状态
 
-**第 0 阶段（进行中）**：数据层、CSV 导入、成本引擎 —— 不涉及 AI，但已经可以用来整理真实的选品资料。
-开发过程见 [`DEVLOG.md`](DEVLOG.md)，设计取舍见 [`docs/DESIGN.md`](docs/DESIGN.md)。
+**第 0 阶段（已完成）**：数据层、数据库迁移、证据导入（CSV / 粘贴）、带引用校验的论断、证据取代、成本引擎 —— 不涉及 AI，但已经可以用来整理真实的选品资料。
+开发过程见 [`DEVLOG.md`](DEVLOG.md)，设计取舍见 [`docs/DESIGN.md`](docs/DESIGN.md)，开发约定见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
 
 | 阶段 | 内容 | 状态 |
 |---|---|---|
-| 0 | 数据模型、证据导入（带来源校验、幂等）、成本引擎 + 敏感度分析、CLI | 🚧 |
-| 1 | 需求 / 竞品 / 质疑 Agent + 协调器，引用校验，评估集 | ⏳ |
+| 0 | 数据模型与迁移、证据导入（来源校验、幂等）、论断引用校验、证据取代、成本引擎 + 敏感度分析、CLI | ✅ |
+| 1 | 评论批量打标、截图导入、需求 / 竞品 / 质疑 Agent + 协调器、评估集 | ⏳ |
 | 2 | Web 工作台：机会看板、产品详情、成本模拟器、调查过程 | ⏳ |
 | 3 | 验证记录与回填，人工审批流 | ⏳ |
 
@@ -42,13 +42,27 @@ uv run petsrc import quotes   private/imports/quotes.csv  -o cat-brush
 
 CSV 格式参考 [`data/samples/`](data/samples)（全部为虚构数据）。
 
+粘贴评论、录入论断、取代过时证据：
+
+```bash
+pbpaste | uv run petsrc paste -o cat-brush --product P1 --source-url https://... # 条目用空行分隔
+uv run petsrc claim add -o cat-brush --type pain --text "..." --cite 12:"原文片段"
+uv run petsrc claim list -o cat-brush
+uv run petsrc evidence supersede 12 30 --note "价格已更新"
+```
+
+引用的原文片段必须真实存在于对应证据中，否则整条论断会被拒绝。
+
 ## 目录
 
 ```
 src/petsourcing/
   models.py          数据模型：证据 → 论断 → 质疑 → 决策 → 验证
+  migrations/        数据库迁移脚本（Alembic）
+  claims.py          论断写入与引用原文校验（防编造）
+  evidence_ops.py    证据取代
   profiles.py        品类配置加载（换品类只换配置）
-  ingest/            CSV 导入：来源校验、去重、逐行报错
+  ingest/            CSV / 粘贴导入：来源校验、去重、逐行报错
   economics/         成本引擎（纯函数）、情景、敏感度分析
   cli.py             命令行
 config/categories/   品类配置（痛点词表、保鲜期、默认假设、合规清单）
