@@ -5,6 +5,7 @@ from sqlalchemy import inspect, text
 from petsourcing.db import init_db, make_engine
 from petsourcing.migrate import current_revision, upgrade
 from petsourcing.models import Base
+from petsourcing.search_index import is_index_object
 
 
 def test_migrations_match_models(tmp_path):
@@ -12,7 +13,10 @@ def test_migrations_match_models(tmp_path):
     engine = make_engine(tmp_path / "m.db")
     init_db(engine)
     with engine.connect() as conn:
-        diff = compare_metadata(MigrationContext.configure(conn), Base.metadata)
+        ctx = MigrationContext.configure(conn, opts={
+            "include_name": lambda name, type_, parent: not (type_ == "table" and is_index_object(name))
+        })
+        diff = compare_metadata(ctx, Base.metadata)
     assert diff == []
 
 

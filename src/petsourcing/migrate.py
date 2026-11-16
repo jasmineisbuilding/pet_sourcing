@@ -41,6 +41,10 @@ def upgrade(engine: Engine, target: str = "head") -> None:
         if "opportunity" in tables and "alembic_version" not in tables:
             command.stamp(cfg, BASELINE_REVISION)  # pre-migration database
         command.upgrade(cfg, target)
+        if target == "head":
+            from .search_index import ensure_index
+
+            ensure_index(conn)
 
 
 def revision(message: str, engine: Engine | None = None) -> None:

@@ -31,6 +31,10 @@ claim_app = typer.Typer(help="论断（带引用校验）", no_args_is_help=True
 app.add_typer(claim_app, name="claim")
 db_app = typer.Typer(help="数据库迁移", no_args_is_help=True)
 app.add_typer(db_app, name="db")
+tool_app = typer.Typer(help="Agent 工具（调试用：查看定义、手动调用）", no_args_is_help=True)
+app.add_typer(tool_app, name="tool")
+run_app = typer.Typer(help="调查运行记录", no_args_is_help=True)
+app.add_typer(run_app, name="run")
 console = Console()
 
 DbOpt = typer.Option(None, "--db", help="数据库文件，默认 private/data/petsourcing.db")
@@ -336,6 +340,98 @@ def db_revision(message: str = typer.Option(..., "-m", help="迁移说明"), db:
     from .migrate import revision
 
     revision(message, make_engine(db) if db else None)
+
+
+# --------------------------------------------------------------------------- tools & runs
+
+
+@tool_app.command("list")
+def tool_list(agent: str = typer.Option("manual", help="只看某个 Agent 被授权的工具")) -> None:
+    """列出 Agent 可用的工具。"""
+    from .agents import AGENT_TOOLS, TOOLS
+
+    if agent not in AGENT_TOOLS:
+        console.print(f"[red]未知 Agent，可选：{sorted(AGENT_TOOLS)}[/red]")
+        raise typer.Exit(2)
+    t = Table("工具", "写入", "说明", "可用的 Agent", title=f"{agent} 可用的工具")
+    for name in sorted(AGENT_TOOLS[agent]):
+        tool = TOOLS[name]
+        users = ", ".join(a for a in sorted(AGENT_TOOLS) if name in AGENT_TOOLS[a] and a != "manual")
+        t.add_row(name, "✓" if tool.writes else "", tool.description, users)
+    console.print(t)
+
+
+@tool_app.command("call")
+def tool_call(
+    name: str = typer.Argument(..., help="工具名"),
+    opportunity: str = typer.Option(..., "--opportunity", "-o"),
+    args: str = typer.Option("{}", "--args", help='JSON 参数，例如 \'{"query": "clean"}\''),
+    agent: str = typer.Option("manual", help="以哪个 Agent 的身份调用（会检查权限）"),
+    run: int | None = typer.Option(None, help="追加到已有的运行记录，默认新建一条"),
+    db: Path | None = DbOpt,
+) -> None:
+    """手动调用一个工具，结果和 Agent 调用时完全一样，并记录在运行日志中。"""
+    import json
+
+    from .agents import ToolExecutor, start_run
+    from .models import ResearchRun
+
+    try:
+        parsed = json.loads(args)
+    except json.JSONDecodeError as e:
+        console.print(f"[red]--args 不是合法的 JSON：{e}[/red]")
+        raise typer.Exit(2)
+    with session_scope(_engine(db)) as s:
+        opp = _get_opp(s, opportunity)
+        r = s.get(ResearchRun, run) if run else start_run(s, opp, model="manual")
+        if r is None or r.opportunity_id != opp.id:
+            console.print(f"[red]运行记录 {run} 不存在或不属于这个机会[/red]")
+            raise typer.Exit(1)
+        result = ToolExecutor(s, opp, r, agent).call(name, parsed)
+        run_id = r.id
+    console.print_json(data=result)
+    console.print(f"[dim]run {run_id}[/dim]")
+    if not result["ok"]:
+        raise typer.Exit(1)
+
+
+@run_app.command("list")
+def run_list(opportunity: str = typer.Option(..., "--opportunity", "-o"), db: Path | None = DbOpt) -> None:
+    """列出一个机会的所有调查运行。"""
+    from .models import AgentStep, ResearchRun
+
+    with session_scope(_engine(db)) as s:
+        opp = _get_opp(s, opportunity)
+        t = Table("run", "状态", "模型", "提示词版本", "开始", "工具调用", "失败")
+        for r in s.scalars(select(ResearchRun).where(ResearchRun.opportunity_id == opp.id).order_by(ResearchRun.id)):
+            n = s.scalar(select(func.count()).select_from(AgentStep).where(AgentStep.run_id == r.id))
+            bad = s.scalar(select(func.count()).select_from(AgentStep).where(AgentStep.run_id == r.id, AgentStep.ok.is_(False)))
+            t.add_row(str(r.id), r.status, r.model or "", r.prompt_version or "",
+                      r.started_at.strftime("%Y-%m-%d %H:%M"), str(n), f"[red]{bad}[/red]" if bad else "0")
+        console.print(t)
+
+
+@run_app.command("show")
+def run_show(run_id: int, db: Path | None = DbOpt) -> None:
+    """按顺序显示一次运行中每个 Agent 的每次工具调用（调查过程）。"""
+    import json
+
+    from .agents import run_steps
+    from .models import ResearchRun
+
+    with session_scope(_engine(db)) as s:
+        r = s.get(ResearchRun, run_id)
+        if r is None:
+            console.print(f"[red]运行 {run_id} 不存在[/red]")
+            raise typer.Exit(1)
+        console.print(f"[bold]run {r.id}[/bold] · {r.status} · model={r.model} · prompt={r.prompt_version}"
+                      + (f" · [red]{escape(r.error)}[/red]" if r.error else ""))
+        t = Table("#", "Agent", "工具", "输入", "结果", "ms")
+        for st in run_steps(s, run_id):
+            res = "[green]ok[/green]" if st.ok else f"[red]{escape(st.error or '')}[/red]"
+            t.add_row(str(st.id), st.agent, st.tool_name,
+                      escape(json.dumps(st.tool_input, ensure_ascii=False)[:80]), res, str(st.latency_ms))
+        console.print(t)
 
 
 # --------------------------------------------------------------------------- demo

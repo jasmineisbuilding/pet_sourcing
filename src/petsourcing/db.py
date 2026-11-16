@@ -16,8 +16,15 @@ def make_engine(path: Path | None = None) -> Engine:
     engine = create_engine(config.db_url(path))
 
     @event.listens_for(engine, "connect")
-    def _fk_on(dbapi_conn, _record):  # SQLite ignores foreign keys unless asked
-        dbapi_conn.execute("PRAGMA foreign_keys=ON")
+    def _on_connect(dbapi_conn, _record):
+        dbapi_conn.execute("PRAGMA foreign_keys=ON")  # SQLite ignores FKs unless asked
+        # Let SQLAlchemy, not the sqlite3 driver, control transactions, so that
+        # SAVEPOINTs work (each agent tool call runs in one and rolls back on error).
+        dbapi_conn.isolation_level = None
+
+    @event.listens_for(engine, "begin")
+    def _on_begin(conn):
+        conn.exec_driver_sql("BEGIN")
 
     return engine
 

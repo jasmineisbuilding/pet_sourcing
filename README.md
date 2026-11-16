@@ -14,7 +14,7 @@
 | 阶段 | 内容 | 状态 |
 |---|---|---|
 | 0 | 数据模型与迁移、证据导入（来源校验、幂等）、论断引用校验、证据取代、成本引擎 + 敏感度分析、CLI | ✅ |
-| 1 | 评论批量打标、截图导入、需求 / 竞品 / 质疑 Agent + 协调器、评估集 | ⏳ |
+| 1 | Agent 工具层（权限、校验、追踪）✅ · 评论批量打标、Agent + 协调器、评估集、截图导入 ⏳ | 🚧 |
 | 2 | Web 工作台：机会看板、产品详情、成本模拟器、调查过程 | ⏳ |
 | 3 | 验证记录与回填，人工审批流 | ⏳ |
 
@@ -53,12 +53,22 @@ uv run petsrc evidence supersede 12 30 --note "价格已更新"
 
 引用的原文片段必须真实存在于对应证据中，否则整条论断会被拒绝。
 
+Agent 工具（第 1 阶段，可以手动以任一 Agent 的身份调用，便于调试）：
+
+```bash
+uv run petsrc tool list --agent demand                 # 某个 Agent 被授权的工具
+uv run petsrc tool call search_evidence -o cat-brush --agent demand --args '{"query": "clean"}'
+uv run petsrc run show 1                               # 一次调查中每个工具调用的记录
+```
+
 ## 目录
 
 ```
 src/petsourcing/
   models.py          数据模型：证据 → 论断 → 质疑 → 决策 → 验证
   migrations/        数据库迁移脚本（Alembic）
+  agents/            Agent 工具层：工具、权限、执行器（savepoint + 追踪）、运行记录
+  search_index.py    证据全文检索（SQLite FTS5，trigram，支持中英法）
   claims.py          论断写入与引用原文校验（防编造）
   evidence_ops.py    证据取代
   profiles.py        品类配置加载（换品类只换配置）
