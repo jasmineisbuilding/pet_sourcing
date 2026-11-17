@@ -251,6 +251,8 @@ class ResearchRun(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     opportunity_id: Mapped[int] = mapped_column(ForeignKey("opportunity.id"))
     round: Mapped[int] = mapped_column(Integer, default=1)
+    # Rounds of one multi-agent investigation share this id.
+    investigation_id: Mapped[str | None] = mapped_column(String(32), index=True)
     status: Mapped[str] = mapped_column(String(30), default="running")  # running/succeeded/failed/paused
     # Reproducibility: which model and prompt set produced this run, so an eval
     # regression can be traced to the exact change that caused it.
@@ -293,6 +295,9 @@ class Claim(Base):
     text: Mapped[str] = mapped_column(Text)
     status: Mapped[ClaimStatus] = mapped_column(_enum(ClaimStatus), default=ClaimStatus.UNVERIFIED)
     confidence: Mapped[float | None] = mapped_column(Float)
+    # A computed claim (e.g. cost) cites the tool call that produced its numbers
+    # instead of, or in addition to, evidence quotes.
+    source_step_id: Mapped[int | None] = mapped_column(ForeignKey("agent_step.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     citations: Mapped[list[ClaimEvidence]] = relationship(back_populates="claim")

@@ -113,6 +113,7 @@ def _claim_dict(c: Claim) -> dict:
         "claim_id": c.id, "type": c.type.value, "status": c.status.value, "agent": c.agent,
         "text": c.text, "confidence": c.confidence,
         "citations": [{"evidence_id": x.evidence_id, "quote_span": x.quote_span} for x in c.citations],
+        "source_step_id": c.source_step_id,
         "challenges": [
             {"challenge_id": ch.id, "type": ch.type.value, "text": ch.text,
              "resolution": ch.resolution.value, "resolution_note": ch.resolution_note}
@@ -130,7 +131,8 @@ def recompute_claim_status(c: Claim) -> ClaimStatus:
     elif any(ch.resolution in (ChallengeResolution.OPEN, ChallengeResolution.NEEDS_RESEARCH)
              for ch in res):
         c.status = ClaimStatus.CHALLENGED
-    elif any(ch.resolution == ChallengeResolution.ACCEPTED for ch in res) or not c.citations:
+    elif any(ch.resolution == ChallengeResolution.ACCEPTED for ch in res) or (
+            not c.citations and c.source_step_id is None):
         c.status = ClaimStatus.UNVERIFIED  # accepted "insufficient evidence", or never cited
     else:
         c.status = ClaimStatus.SUPPORTED
@@ -307,6 +309,9 @@ class AddClaimIn(_In):
     text: str = Field(description="One specific, checkable statement.")
     citations: list[CitationIn] = Field(default_factory=list)
     confidence: float | None = Field(None, ge=0, le=1)
+    source_step_id: int | None = Field(
+        None, description="For computed claims: the step_id of a compute_economics call in this run. "
+                          "Every number in the text must appear in that call's inputs or results.")
 
 
 AGENT_CLAIM_TYPES: dict[str, set[ClaimType]] = {
@@ -324,7 +329,8 @@ def add_claim_tool(ctx: ToolContext, inp: AddClaimIn) -> dict:
                         f"{sorted(t.value for t in allowed)}")
     r = add_claim(ctx.session, ctx.opp, agent=ctx.agent, type=inp.type, text=inp.text,
                   citations=[Citation(c.evidence_id, c.quote_span) for c in inp.citations],
-                  run_id=ctx.run.id, confidence=inp.confidence, today=ctx.today)
+                  run_id=ctx.run.id, confidence=inp.confidence, today=ctx.today,
+                  source_step_id=inp.source_step_id)
     if not r.ok:
         raise ToolError("claim rejected, nothing was saved: " + " | ".join(r.errors))
     return {"claim_id": r.claim_id, "status": r.status.value, "warnings": r.warnings}
@@ -465,6 +471,19 @@ def propose_action(ctx: ToolContext, inp: ProposeActionIn) -> dict:
             "note": "Proposed only. A human must approve before anything happens."}
 
 
+class RequestFollowupIn(_In):
+    agent: Literal["demand", "competitor", "cost"]
+    instruction: str = Field(description="What exactly to look into in the next round, and why.")
+
+
+def request_followup(ctx: ToolContext, inp: RequestFollowupIn) -> dict:
+    """Records nothing by itself: the orchestrator reads these calls from the run trace."""
+    if len(inp.instruction.strip()) < 10:
+        raise ToolError("instruction is too vague; say what to look for and why")
+    return {"agent": inp.agent, "instruction": inp.instruction.strip(),
+            "note": "Will run in the next round if the round limit allows."}
+
+
 # --------------------------------------------------------------------------- registry
 
 
@@ -503,6 +522,10 @@ TOOLS: dict[str, Tool] = {t.name: t for t in [
     Tool("propose_action", "Propose a real-world action for human approval. Never executes "
          "anything itself. Repeating the same proposal returns the existing one.",
          ProposeActionIn, propose_action, writes=True),
+    Tool("request_followup", "Ask a research agent (demand / competitor / cost) to look into "
+         "something specific in the next round. Use for questions agents can answer from the data; "
+         "use propose_action(request_data) when a human must collect new data.",
+         RequestFollowupIn, request_followup),
 ]}
 
 _READ = {"search_evidence", "get_evidence", "list_products", "pain_point_stats"}
@@ -511,6 +534,7 @@ AGENT_TOOLS: dict[str, set[str]] = {
     "competitor": _READ | {"add_claim"},
     "cost": _READ | {"list_quotes", "compute_economics", "add_claim"},
     "challenger": _READ | {"list_quotes", "compute_economics", "list_claims", "add_challenge"},
-    "coordinator": _READ | {"list_claims", "resolve_challenge", "record_decision", "propose_action"},
+    "coordinator": _READ | {"list_claims", "resolve_challenge", "record_decision", "propose_action",
+                            "request_followup"},
     "manual": set(TOOLS),
 }

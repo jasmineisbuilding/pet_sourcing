@@ -104,10 +104,12 @@ class ToolExecutor:
         ok = error is None
         result = {"ok": True, **_jsonable(out)} if ok else {
             "ok": False, "error_type": error_type, "error": error}
-        self.ctx.session.add(AgentStep(
+        step = AgentStep(
             run_id=self.ctx.run.id, agent=self.ctx.agent, tool_name=name,
             tool_input=_jsonable(args), tool_output=result, ok=ok, error=error,
             latency_ms=int((time.perf_counter() - start) * 1000),
-        ))
+        )
+        self.ctx.session.add(step)
         self.ctx.session.flush()
-        return result
+        # The step id lets a later claim cite this exact call (e.g. a cost computation).
+        return {**result, "step_id": step.id}

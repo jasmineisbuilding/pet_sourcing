@@ -27,7 +27,7 @@ from datetime import date
 
 from sqlalchemy.orm import Session
 
-from .models import Claim, ClaimEvidence, ClaimStatus, ClaimType, Evidence, Opportunity
+from .models import AgentStep, Claim, ClaimEvidence, ClaimStatus, ClaimType, Evidence, Opportunity, ResearchRun
 from .profiles import load_profile
 
 MIN_QUOTE_CHARS = 12
@@ -35,6 +35,9 @@ _ELLIPSIS = re.compile(r"\s*(?:\.\.\.|…)\s*")
 _QUOTES = str.maketrans({"‘": "'", "’": "'", "‚": "'", "“": '"', "”": '"', "„": '"',
                          "–": "-", "—": "-", "‐": "-"})
 _NUMBER = re.compile(r"\d+(?:[.,]\d+)?")
+# For computed claims: "1,331", "-52.2%", "4.50"
+_AMOUNT = re.compile(r"(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\s*(%)?")
+COMPUTE_TOOLS = {"compute_economics"}
 
 
 def normalize_for_match(text: str) -> str:
@@ -101,6 +104,57 @@ def check_citation(
     return CitationCheck(c, True, warning=warning)
 
 
+def _numbers(obj) -> list[float]:
+    if isinstance(obj, bool) or obj is None:
+        return []
+    if isinstance(obj, (int, float)):
+        return [float(obj)]
+    if isinstance(obj, dict):
+        return [n for v in obj.values() for n in _numbers(v)]
+    if isinstance(obj, (list, tuple)):
+        return [n for v in obj for n in _numbers(v)]
+    return []
+
+
+def unmatched_numbers(text: str, sources: list) -> list[str]:
+    """Numbers in ``text`` that match no number in ``sources`` at the precision written.
+
+    "26.6%" matches 0.266; "1,331" matches -1331.4 (sign is carried by words like 亏损).
+    """
+    values = [abs(v) for v in _numbers(sources)]
+    missing = []
+    for m in _AMOUNT.finditer(text):
+        token, pct = m.group(1), m.group(2)
+        written = float(token.replace(",", ""))
+        decimals = len(token.split(".")[1]) if "." in token else 0
+        candidates = [v * 100 for v in values] if pct else values
+        if not any(round(c, decimals) == round(written, decimals) for c in candidates):
+            missing.append(m.group(0).strip())
+    return missing
+
+
+def check_source_step(session: Session, opp: Opportunity, step_id: int, run_id: int | None,
+                      text: str) -> str | None:
+    """Error message if ``step_id`` cannot back this computed claim, else None."""
+    step = session.get(AgentStep, step_id)
+    if step is None:
+        return f"step {step_id} does not exist"
+    run = session.get(ResearchRun, step.run_id)
+    if run.opportunity_id != opp.id:
+        return f"step {step_id} belongs to another opportunity"
+    if run_id is not None and step.run_id != run_id:
+        return f"step {step_id} is from another run; compute again in this run"
+    if step.tool_name not in COMPUTE_TOOLS:
+        return f"step {step_id} is a {step.tool_name} call; only {sorted(COMPUTE_TOOLS)} can back a computed claim"
+    if not step.ok:
+        return f"step {step_id} failed, it cannot back a claim"
+    missing = unmatched_numbers(text, [step.tool_input, step.tool_output])
+    if missing:
+        return (f"number(s) {missing} do not appear in the inputs or results of step {step_id}; "
+                "quote computed numbers exactly as the tool returned them")
+    return None
+
+
 @dataclass
 class AddClaimResult:
     ok: bool
@@ -121,6 +175,7 @@ def add_claim(
     run_id: int | None = None,
     confidence: float | None = None,
     today: date | None = None,
+    source_step_id: int | None = None,
 ) -> AddClaimResult:
     if not text.strip():
         return AddClaimResult(False, errors=["claim text is empty"])
@@ -130,11 +185,17 @@ def add_claim(
     citations = citations or []
     checks = [check_citation(session, opp, c, today) for c in citations]
     errors = [ch.error for ch in checks if not ch.ok]
+    if source_step_id is not None:
+        step_error = check_source_step(session, opp, source_step_id, run_id, text)
+        if step_error:
+            errors.append(step_error)
     if errors:
         return AddClaimResult(False, errors=errors)
 
     warnings = [ch.warning for ch in checks if ch.warning]
-    if citations:
+    if source_step_id is not None:
+        pass  # every number was verified against the tool call above
+    elif citations:
         quoted = " ".join(normalize_for_match(c.quote_span) for c in citations)
         missing = [n for n in _NUMBER.findall(text) if n not in quoted]
         if missing:
@@ -144,9 +205,10 @@ def add_claim(
     else:
         warnings.append("no citations: stored as unverified")
 
-    status = ClaimStatus.SUPPORTED if citations else ClaimStatus.UNVERIFIED
+    status = ClaimStatus.SUPPORTED if (citations or source_step_id) else ClaimStatus.UNVERIFIED
     claim = Claim(opportunity_id=opp.id, run_id=run_id, agent=agent, type=type,
-                  text=text.strip(), status=status, confidence=confidence)
+                  text=text.strip(), status=status, confidence=confidence,
+                  source_step_id=source_step_id)
     session.add(claim)
     session.flush()
     for c in citations:

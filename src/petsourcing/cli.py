@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import date
 from pathlib import Path
@@ -480,6 +481,94 @@ def agent_run(
         console.print(f"[dim]run {run.id} · {run.status} · prompt {run.prompt_version} · "
                       f"{res.turns} 轮 · {res.tool_calls} 次工具调用（失败 {res.failed_tool_calls}） · "
                       f"tokens {res.input_tokens}+{res.output_tokens}[/dim]")
+
+
+@app.command()
+def investigate(
+    opportunity: str = typer.Option(..., "--opportunity", "-o"),
+    model: str = typer.Option("demo", help="目前只有 demo（脚本模拟的完整两轮调查，不需要 API key）"),
+    max_rounds: int = typer.Option(2),
+    db: Path | None = DbOpt,
+) -> None:
+    """多 Agent 调查：需求、竞品、成本 → 质疑 → 协调，最多 N 轮，直到做出决策。"""
+    from .agents.orchestrator import InvestigationLimits
+    from .agents.orchestrator import investigate as run_investigation
+
+    if model != "demo":
+        console.print("[red]目前只支持 --model demo；真实模型在后续步骤接入[/red]")
+        raise typer.Exit(2)
+    from .agents.demo_investigation import demo_model_for
+
+    names = {"demand": "需求", "competitor": "竞品", "cost": "成本", "challenger": "质疑", "coordinator": "协调"}
+
+    def show(kind: str, d: dict) -> None:
+        who = f"[cyan]{names.get(d.get('agent', ''), d.get('agent', ''))}[/cyan]"
+        if kind == "round_start":
+            console.rule(f"第 {d['round']} 轮 · {', '.join(names[a] for a in d['agents'])} → 质疑 → 协调")
+        elif kind == "agent_start":
+            console.print(f"\n{who} 开始（提示词 {d['prompt_version']}）")
+        elif kind == "text":
+            console.print(f"  {who} 💬 {escape(d['text'])}")
+        elif kind == "tool":
+            mark = "[green]✓[/green]" if d["ok"] else f"[red]✗ {escape(d['error'] or '')}[/red]"
+            console.print(f"  {who} 🔧 {d['name']} {mark}")
+        elif kind == "skip":
+            console.print(f"\n{who} 跳过：{d['reason']}")
+        elif kind == "followups":
+            for agent, items in d["followups"].items():
+                for it in items:
+                    console.print(f"\n[yellow]→ 补充调查（{names[agent]}）：{escape(it)}[/yellow]")
+        elif kind == "decided":
+            console.rule(f"[bold green]决策：{d['verdict']}[/bold green]")
+        elif kind == "stopped":
+            console.rule(f"[bold yellow]{d['status']}：{escape(d['reason'])}[/bold yellow]")
+
+    with session_scope(_engine(db)) as s:
+        opp = _get_opp(s, opportunity)
+        r = run_investigation(s, opp, demo_model_for, limits=InvestigationLimits(max_rounds=max_rounds),
+                              on_event=show)
+    console.print(f"[dim]调查 {r.investigation_id} · {r.status} · {r.rounds} 轮 · runs {r.run_ids} · "
+                  f"tokens {r.total_tokens}[/dim]")
+    for w in r.warnings:
+        console.print(f"[yellow]⚠ {escape(w)}[/yellow]")
+    console.print(f"查看结论：petsrc report -o {opportunity}" + (f" --db {db}" if db else ""))
+
+
+@app.command()
+def report(opportunity: str = typer.Option(..., "--opportunity", "-o"), db: Path | None = DbOpt) -> None:
+    """一个机会的当前结论：最新决策、所有论断及其状态、质疑、待审批动作。"""
+    from .models import ActionProposal, Decision
+
+    style = {"supported": "green", "unverified": "yellow", "challenged": "magenta", "refuted": "red"}
+    with session_scope(_engine(db)) as s:
+        opp = _get_opp(s, opportunity)
+        d = s.scalar(select(Decision).where(Decision.opportunity_id == opp.id).order_by(Decision.id.desc()))
+        console.rule(f"[bold]{escape(opp.title)}[/bold]")
+        if d:
+            verdict = {"enter": "进入验证", "hold": "暂不进入", "drop": "放弃"}[d.verdict.value]
+            console.print(f"[bold]决策：{verdict}[/bold]（依据论断 {d.claim_ids}）\n{escape(d.rationale)}")
+            if d.validation_plan:
+                console.print(f"验证计划：{escape(d.validation_plan)}")
+        else:
+            console.print("[dim]尚无决策[/dim]")
+
+        t = Table("id", "Agent", "类型", "状态", "论断", "依据 / 质疑")
+        for c in s.scalars(select(Claim).where(Claim.opportunity_id == opp.id).order_by(Claim.id)):
+            basis = [f"#{x.evidence_id} “{x.quote_span}”" for x in c.citations]
+            if c.source_step_id:
+                basis.append(f"计算 step {c.source_step_id}")
+            basis += [f"⚔ {ch.type.value} → {ch.resolution.value}: {ch.text}" for ch in c.challenges]
+            st = c.status.value
+            t.add_row(str(c.id), c.agent, c.type.value, f"[{style[st]}]{st}[/{style[st]}]",
+                      escape(c.text), escape("\n".join(basis)) or "[dim]无[/dim]")
+        console.print(t)
+
+        props = list(s.scalars(select(ActionProposal).where(ActionProposal.opportunity_id == opp.id)))
+        if props:
+            t = Table("id", "动作", "内容", "状态", title="待人工审批的动作")
+            for p in props:
+                t.add_row(str(p.id), p.action_type, escape(json.dumps(p.payload, ensure_ascii=False)), p.status.value)
+            console.print(t)
 
 
 # --------------------------------------------------------------------------- demo

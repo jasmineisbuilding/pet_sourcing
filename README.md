@@ -14,7 +14,7 @@
 | 阶段 | 内容 | 状态 |
 |---|---|---|
 | 0 | 数据模型与迁移、证据导入（来源校验、幂等）、论断引用校验、证据取代、成本引擎 + 敏感度分析、CLI | ✅ |
-| 1 | Agent 工具层 ✅ · Agent 循环骨架（脚本模型）✅ · 接入真实模型、评论打标、多 Agent 协调、评估集、截图导入 ⏳ | 🚧 |
+| 1 | Agent 工具层 ✅ · Agent 循环 ✅ · 多 Agent 协调（脚本模型）✅ · 接入真实模型、评论打标、评估集、截图导入 ⏳ | 🚧 |
 | 2 | Web 工作台：机会看板、产品详情、成本模拟器、调查过程 | ⏳ |
 | 3 | 验证记录与回填，人工审批流 | ⏳ |
 
@@ -60,6 +60,14 @@ uv run petsrc tool list --agent demand                 # 某个 Agent 被授权�
 uv run petsrc tool call search_evidence -o cat-brush --agent demand --args '{"query": "clean"}'
 uv run petsrc run show 1                               # 一次调查中每个工具调用的记录
 uv run petsrc agent run -o demo-easy-clean-cat-brush --db private/data/demo.db   # 脚本模拟的需求 Agent，不需要 API key
+```
+
+多 Agent 调查（脚本模拟，两轮，最终结论为"暂不进入"）：
+
+```bash
+uv run petsrc demo
+uv run petsrc investigate -o demo-easy-clean-cat-brush --db private/data/demo.db
+uv run petsrc report -o demo-easy-clean-cat-brush --db private/data/demo.db
 ```
 
 ## 目录
